@@ -1,0 +1,52 @@
+// schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model BoletoRequestLog {
+  id             String       @id @default(cuid())
+  createdAt      DateTime     @default(now())
+  cpf            String
+  customerName   String?
+  requestType    RequestType
+  statusCode     Int?
+  success        Boolean
+  errorMessage   String?
+  responseTimeMs Int?
+  companyId      Int?
+  endpoint       String?
+
+  installments   BoletoInstallmentLog[]
+
+  @@index([cpf, createdAt])
+  @@index([createdAt])
+}
+
+model BoletoInstallmentLog {
+  id               String   @id @default(cuid())
+  requestId        String
+  request          BoletoRequestLog @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  billReceivableId Int?
+  installmentId    Int?
+  parcelaNumber    Int?
+  dueDate          DateTime?
+  amount           Decimal? @db.Decimal(12, 2)  // <= aqui é o fix
+  generatedBoleto  Boolean?
+  urlReport        String?
+  hasUrl           Boolean  @default(false)
+
+  @@index([requestId])
+  @@index([billReceivableId, installmentId])
+}
+
+enum RequestType {
+  SINGLE
+  ALL
+  ALL_ENTERPRISES
+}
