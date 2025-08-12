@@ -29,7 +29,7 @@ WORKDIR /app
 
 # instala qpdf
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    qpdf \
+    qpdf openssl \
  && rm -rf /var/lib/apt/lists/*
 
 # copia apenas o necessário do build
