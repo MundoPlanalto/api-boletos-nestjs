@@ -166,6 +166,102 @@ export class BoletosService {
     }
   }
 
+  // LISTA boletos apenas de um empreendimento (sem dueDate/value)
+  async listarBoletosDoEmpreendimento(params: { cpf: string; companyId: number }) {
+    const { cpf, companyId } = params;
+
+    const cliente = await BuscarClienteSiengeService(cpf);
+    const nomeCliente = (cliente as any)?.results?.[0]?.name || 'cliente';
+
+    // 1) Busca todos os débitos do CPF
+    const debitos = await BuscarDebitoClienteService(cpf);
+    const debitosList = (debitos as any).results ?? [];
+
+    // 2) Mapear bill -> companyId (reaproveitando sua lógica)
+    const bills: number[] = Array.from(
+      new Set<number>(debitosList.map((d: any) => Number(d.billReceivableId))),
+    );
+    const billCompanyMap = new Map<number, number>();
+
+    await Promise.all(
+      bills.map(async (bill: number) => {
+        try {
+          const { data } = await axios.get(
+            `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
+            {
+              auth: {
+                username: 'mundoplanalto-brayan',
+                password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
+              },
+            },
+          );
+          billCompanyMap.set(bill, Number(data.companyId ?? 0));
+        } catch {
+          billCompanyMap.set(bill, 0);
+        }
+      }),
+    );
+
+    // 3) Filtrar os débitos apenas do company desejado e montar tarefas de busca de URL
+    type Task = { bill: number; inst: number; tipo: 'vencido' | 'aberto' };
+    const tasks: Task[] = [];
+
+    for (const debito of debitosList) {
+      const bill: number = Number(debito.billReceivableId);
+      if (billCompanyMap.get(bill) !== companyId) continue;
+
+      for (const inst of debito.dueInstallments ?? []) {
+        tasks.push({ bill, inst: Number(inst.installmentId), tipo: 'vencido' });
+      }
+      for (const inst of debito.payableInstallments ?? []) {
+        if (!inst.generatedBoleto) continue;
+        tasks.push({ bill, inst: Number(inst.installmentId), tipo: 'aberto' });
+      }
+    }
+
+    // 4) Buscar as URLs de cada parcela
+    const vencidos: Array<{ parcela: number; bill: number; link: string | null }> = [];
+    const emAberto: Array<{ parcela: number; bill: number; link: string | null }> = [];
+
+    const resultados = await Promise.all(
+      tasks.map(t =>
+        BuscarBoletoClienteService(t.bill, t.inst)
+          .then((info: any) => {
+            const found = info?.results?.find((r: any) => r?.urlReport);
+            return { ...t, url: found?.urlReport ?? null };
+          })
+          .catch(() => ({ ...t, url: null })),
+      ),
+    );
+
+    for (const r of resultados) {
+      const alvo = r.tipo === 'vencido' ? vencidos : emAberto;
+      alvo.push({ parcela: r.inst, bill: r.bill, link: r.url });
+    }
+
+    // 5) Montar retorno igual ao /todos-empreendimentos, porém só para um
+    const chave = `${companyId} - empreendimento`; // se quiser, resolva o nome como no outro endpoint
+    const payload = {
+      [chave]: {
+        total: vencidos.length + emAberto.length,
+        vencidos,
+        emAberto,
+      },
+    };
+
+    return {
+      mensagem:
+        vencidos.length + emAberto.length > 0
+          ? `📄 Olá, *${nomeCliente}*! Encontramos boletos do empreendimento selecionado.`
+          : `📄 Olá, *${nomeCliente}*! Não há boletos disponíveis para este empreendimento.`,
+      cliente: nomeCliente,
+      companyId,
+      boletos: payload,
+    };
+  }
+
+
+
   // ------------- TodasS as parcelas de um BillReceivableId (CT) -------------
   async emitirTodasParcelas(params: {
     cpf: string;

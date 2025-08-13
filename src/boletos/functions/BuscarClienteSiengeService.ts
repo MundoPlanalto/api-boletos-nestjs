@@ -14,7 +14,6 @@ export default async function BuscarClienteSiengeService(
 ): Promise<CustomerResponse | { error: string }> {
   try {
     const url = `${SIENGE_BASE_URL}/customers`;
-    console.log("ver o o url aqui2 ", url);
     const resp = await axios.get<CustomerResponse>(url, {
       params: { cpf },
       auth: { username: SIENGE_USER, password: SIENGE_PASS },
@@ -25,7 +24,6 @@ export default async function BuscarClienteSiengeService(
     if (typeof resp.data === "object" && (resp.data as any)?.error) {
       return { error: (resp.data as any).error };
     }
-    console.log("ver o resp aqui2 ", resp.data);
     return resp.data;
   } catch (e: any) {
     return { error: e?.message ?? "Erro ao buscar cliente" };

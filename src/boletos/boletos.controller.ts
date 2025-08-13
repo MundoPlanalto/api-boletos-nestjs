@@ -8,22 +8,40 @@ export class BoletosController {
 
   @Post("segunda-via")
   @HttpCode(HttpStatus.OK)
-  async segundaVia(
-    @Body()
-    body: {
-      cpf: string;
-      companyId: number;
-      billReceivableId: number;
-      installmentId: number;
-    }
+  async segundaViaPorEmpresa(
+    @Body() body: { cpf: string; companyId: number; includeBase64?: boolean }
   ) {
-    const { cpf, companyId, billReceivableId, installmentId } = body;
-    return await this.boletosService.emitirParcelaUnica({
-      cpf,
-      companyId,
-      billReceivableId,
-      installmentId
+    const { cpf, companyId } = body;
+    return this.boletosService.listarBoletosDoEmpreendimento({ cpf, companyId });
+  }
+
+  @Post('segunda-via/lista-empresa')
+  @HttpCode(HttpStatus.OK)
+  async listarEmpresa(
+    @Body() body: { cpf: string; companyId: number },
+  ) {
+    return this.boletosService.listarBoletosDoEmpreendimento({
+      cpf: body.cpf,
+      companyId: body.companyId,
     });
+  }
+
+  @Post("segunda-via/pdf")
+  @HttpCode(HttpStatus.OK)
+  async segundaViaPdf(
+    @Body() body: { cpf: string; companyId: number; nomeArquivo?: string },
+    @Res() res: Response
+  ) {
+    const { buffer, filename } = await this.boletosService.gerarPdfSegundaViaDoEmpreendimento(
+      body.cpf,
+      body.companyId,
+      body.nomeArquivo
+    );
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    res.setHeader("Content-Length", String(buffer.length));
+    res.setHeader("Cache-Control", "no-store");
+    return res.end(buffer);
   }
 
   @Post("todos")

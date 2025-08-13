@@ -15,7 +15,6 @@ export default async function BuscarBoletoClienteService(
 ): Promise<PaymentSlip | { error: string }> {
   try {
     const url = `${SIENGE_BASE_URL}/payment-slip-notification`;
-    console.log("ver o o url aqui3 ", url);
     const resp = await axios.get<PaymentSlip>(url, {
       params: { billReceivableId, installmentId },
       auth: { username: SIENGE_USER, password: SIENGE_PASS },
@@ -25,7 +24,6 @@ export default async function BuscarBoletoClienteService(
     if (typeof resp.data === "object" && (resp.data as any)?.error) {
       return { error: (resp.data as any).error };
     }
-    console.log("ver o resp aqui ", resp.data);
     return resp.data;
   } catch (e: any) {
     return { error: e?.message ?? "Erro ao buscar boleto" };

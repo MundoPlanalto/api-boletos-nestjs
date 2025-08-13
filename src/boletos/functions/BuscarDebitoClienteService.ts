@@ -14,7 +14,6 @@ export default async function BuscarDebitoClienteService(
 ): Promise<CurrentDebitBalance | { error: string }> {
   try {
     const url = `${SIENGE_BASE_URL}/current-debit-balance`;
-    console.log("ver o o url aqui ", url);
     const resp = await axios.get<CurrentDebitBalance>(url, {
       params: { cpf },
       auth: { username: SIENGE_USER, password: SIENGE_PASS },
@@ -24,7 +23,6 @@ export default async function BuscarDebitoClienteService(
     if (typeof resp.data === "object" && (resp.data as any)?.error) {
       return { error: (resp.data as any).error };
     }
-    console.log("ver o resp aqui3 ", resp.data);
     return resp.data;
   } catch (e: any) {
     return { error: e?.message ?? "Erro ao buscar débitos" };
