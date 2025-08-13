@@ -5,10 +5,6 @@ const SIENGE_BASE_URL = process.env.SIENGE_BASE_URL!;
 const SIENGE_USER = process.env.SIENGE_USER!;
 const SIENGE_PASS = process.env.SIENGE_PASS!;
 
-/**
- * Rota usada (exemplo real): GET {BASE}/payment-slip-notification?billReceivableId=...&installmentId=...
- * Mantive a **assinatura com DOIS argumentos**, como no seu projeto original.
- */
 export default async function BuscarBoletoClienteService(
   billReceivableId: number,
   installmentId: number
