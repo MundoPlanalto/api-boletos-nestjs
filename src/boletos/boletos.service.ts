@@ -18,6 +18,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
 
+import { pdfPasswordFromDoc } from '../shared/doc.util';
+
 type RequestType = 'SINGLE' | 'ALL' | 'ALL_ENTERPRISES';
 
 @Injectable()
@@ -95,17 +97,17 @@ export class BoletosService {
     billReceivableId: number;
     installmentId: number;
   }) {
-    const { cpf, companyId, billReceivableId, installmentId } = params;
+    const { cpf: doc, companyId, billReceivableId, installmentId } = params;
     const start = Date.now();
 
-    const cliente = (await BuscarClienteSiengeService(cpf)) as
+    const cliente = (await BuscarClienteSiengeService(doc)) as
       | CustomerResponse
       | { error: string };
     const customerName: string | undefined = (cliente as CustomerResponse)
       ?.results?.[0]?.name;
 
     const reqLog = await this.logRequestStart({
-      cpf,
+      cpf: doc,
       companyId,
       customerName,
       requestType: 'SINGLE',
@@ -168,13 +170,13 @@ export class BoletosService {
 
   // LISTA boletos apenas de um empreendimento (sem dueDate/value)
   async listarBoletosDoEmpreendimento(params: { cpf: string; companyId: number }) {
-    const { cpf, companyId } = params;
+    const { cpf: doc, companyId } = params;
 
-    const cliente = await BuscarClienteSiengeService(cpf);
+    const cliente = await BuscarClienteSiengeService(doc);
     const nomeCliente = (cliente as any)?.results?.[0]?.name || 'cliente';
 
     // 1) Busca todos os débitos do CPF
-    const debitos = await BuscarDebitoClienteService(cpf);
+    const debitos = await BuscarDebitoClienteService(doc);
     const debitosList = (debitos as any).results ?? [];
 
     // 2) Mapear bill -> companyId (reaproveitando sua lógica)
@@ -274,17 +276,17 @@ export class BoletosService {
       generatedBoleto?: boolean;
     }>;
   }) {
-    const { cpf, companyId, billReceivableId, parcelas } = params;
+    const { cpf: doc, companyId, billReceivableId, parcelas } = params;
     const start = Date.now();
 
-    const cliente = (await BuscarClienteSiengeService(cpf)) as
+    const cliente = (await BuscarClienteSiengeService(doc)) as
       | CustomerResponse
       | { error: string };
     const customerName: string | undefined = (cliente as CustomerResponse)
       ?.results?.[0]?.name;
 
     const reqLog = await this.logRequestStart({
-      cpf,
+      cpf: doc,
       companyId,
       customerName,
       requestType: 'ALL',
@@ -354,12 +356,12 @@ export class BoletosService {
 
   // ------------- Todos Empreendimentos -------------
   async emitirTodosEmpreendimentos(params: { cpf: string }) {
-    const { cpf } = params;
+    const { cpf: doc } = params;
 
-    const cliente = await BuscarClienteSiengeService(cpf);
+    const cliente = await BuscarClienteSiengeService(doc);
     const nomeCliente = (cliente as any)?.results?.[0]?.name || 'cliente';
 
-    const debitos = await BuscarDebitoClienteService(cpf);
+    const debitos = await BuscarDebitoClienteService(doc);
     const debitosList = (debitos as any).results ?? [];
 
     const agrupado: Record<string, { vencidos: any[]; emAberto: any[] }> = {};
@@ -502,7 +504,7 @@ export class BoletosService {
     }
 
     // PDF unificado (base64)
-    const pdfUnificado = await this.gerarPdfUnificadoPorEmpresas(agrupado, cpf);
+    const pdfUnificado = await this.gerarPdfUnificadoPorEmpresas(agrupado, doc);
 
     return {
       mensagem: Object.keys(boletosFinal).length
@@ -541,11 +543,12 @@ export class BoletosService {
   // helper: unifica PDFs a partir de URLs (descriptografa com senha baseada no CPF)
   private async gerarPdfUnificadoPorLinks(
     urls: string[],
-    cpf: string,
+    doc: string,
   ): Promise<Buffer | null> {
     if (!urls?.length) return null;
 
-    const senha = cpf.replace(/\D/g, '').slice(0, 5);
+    // const senha = cpf.replace(/\D/g, '').slice(0, 5);
+    const senha = pdfPasswordFromDoc(doc);
     const pdfDoc = await PDFDocument.create();
     let temPagina = false;
 
@@ -594,21 +597,22 @@ export class BoletosService {
     cpf: string,
     nomeArquivo?: string,
   ): Promise<{ buffer: Buffer; filename: string }> {
+    const doc = cpf;
     const start = Date.now();
-    const cliente = (await BuscarClienteSiengeService(cpf)) as
+    const cliente = (await BuscarClienteSiengeService(doc)) as
       | CustomerResponse
       | { error: string };
     const customerName: string | undefined = (cliente as CustomerResponse)
       ?.results?.[0]?.name;
 
     const reqLog = await this.logRequestStart({
-      cpf,
+      cpf: doc,
       customerName,
       requestType: 'ALL_ENTERPRISES',
       endpoint: '/boletos/todos-empreendimentos/pdf',
     });
 
-    const debitos = (await BuscarDebitoClienteService(cpf)) as
+    const debitos = (await BuscarDebitoClienteService(doc)) as
       | CurrentDebitBalance
       | { error: string };
     if ((debitos as any)?.error) {
@@ -680,15 +684,16 @@ export class BoletosService {
     companyId: number,
     nomeArquivo?: string,
   ): Promise<{ buffer: Buffer; filename: string }> {
+    const doc = cpf;
     const start = Date.now();
-    const cliente = (await BuscarClienteSiengeService(cpf)) as
+    const cliente = (await BuscarClienteSiengeService(doc)) as
       | CustomerResponse
       | { error: string };
     const customerName: string | undefined = (cliente as CustomerResponse)
       ?.results?.[0]?.name;
 
     const reqLog = await this.logRequestStart({
-      cpf,
+      cpf: doc,
       companyId,
       customerName,
       requestType: 'ALL',
@@ -696,7 +701,7 @@ export class BoletosService {
     });
 
     // Reaproveita lógica: extrai todos, filtra por company do bill
-    const debitos = await BuscarDebitoClienteService(cpf);
+    const debitos = await BuscarDebitoClienteService(doc);
     const todos = this.extrairBoletos(debitos as any);
 
     // mapeia bill -> companyId
@@ -785,9 +790,10 @@ export class BoletosService {
 
   private async gerarPdfUnificadoPorEmpresas(
     agrupado: Record<string, { vencidos: any[]; emAberto: any[] }>,
-    cpf: string,
+    doc: string,
   ): Promise<string | null> {
-    const senha = cpf.replace(/\D/g, '').slice(0, 5);
+    const senha = pdfPasswordFromDoc(doc);
+    // const senha = cpf.replace(/\D/g, '').slice(0, 5);
     const pdfDoc = await PDFDocument.create();
     let temPagina = false;
 
@@ -837,7 +843,8 @@ export class BoletosService {
 
   async gerarPdfBufferUnificado(cpf: string): Promise<Buffer | null> {
     // 1) extrai Todos os boletos
-    const debitos = await BuscarDebitoClienteService(cpf);
+    const doc = cpf;
+    const debitos = await BuscarDebitoClienteService(doc);
     const todos = this.extrairBoletos(debitos);
 
     // 2) busca a URL de cada boleto
