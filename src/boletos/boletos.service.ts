@@ -801,7 +801,6 @@ async emitirTodosEmpreendimentos(params: { cpf: string }) {
     tasksSelecionadas = tasksVenc.concat(tasksAbert);
   }
 
-  // 5) Buscar URL de cada parcela do subset (rápido: paralelismo + timeout por item)
   let urlCacheHits = 0;
   let urlCacheMiss = 0;
 
