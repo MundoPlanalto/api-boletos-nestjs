@@ -19,6 +19,12 @@ import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
 
 import { pdfPasswordFromDoc } from '../shared/doc.util';
+import { axiosSienge } from 'src/shared/http';
+import { withLimit } from 'src/shared/pool';
+import { cacheGet, cacheSet } from 'src/shared/cache';
+
+import { dedupePromise } from 'src/shared/inflight';
+
 
 type RequestType = 'SINGLE' | 'ALL' | 'ALL_ENTERPRISES';
 
@@ -185,39 +191,74 @@ export class BoletosService {
     );
     const billCompanyMap = new Map<number, number>();
 
-    await Promise.all(
-      bills.map(async (bill: number) => {
-        try {
-          const { data } = await axios.get(
-            `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
-            {
-              auth: {
-                username: 'mundoplanalto-brayan',
-                password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
-              },
-            },
-          );
-          billCompanyMap.set(bill, Number(data.companyId ?? 0));
-        } catch {
-          billCompanyMap.set(bill, 0);
-        }
-      }),
-    );
+    // await Promise.all(
+    //   bills.map(async (bill: number) => {
+    //     try {
+    //       // const { data } = await axios.get(
+    //       //   `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
+    //       //   {
+    //       //     auth: {
+    //       //       username: 'mundoplanalto-brayan',
+    //       //       password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
+    //       //     },
+    //       //   },
+    //       // );
+
+    //       const { data } = await axiosSienge.get(
+    //         `/accounts-receivable/receivable-bills/${bill}`
+    //       );
+
+
+    //       billCompanyMap.set(bill, Number(data.companyId ?? 0));
+    //     } catch {
+    //       billCompanyMap.set(bill, 0);
+    //     }
+    //   }),
+    // );
+
+    await withLimit(10, bills.map((bill: number) => async () => {
+      const ck = `billMeta:${bill}`;
+      const cached = cacheGet<{ companyId: number; nome: string }>(ck);
+      if (cached) {
+        billCompanyMap.set(bill, cached.companyId);
+        return;
+      }
+      try {
+        const { data } = await axiosSienge.get(`/accounts-receivable/receivable-bills/${bill}`);
+        const meta = { companyId: Number(data?.companyId ?? 0), nome: String(data?.enterpriseName ?? 'não identificado') };
+        billCompanyMap.set(bill, meta.companyId);
+        cacheSet(ck, meta, 1000 * 60 * 60 * 12); // 12h
+      } catch {
+        const meta = { companyId: 0, nome: 'não identificado' };
+        billCompanyMap.set(bill, 0);
+        cacheSet(ck, meta, 1000 * 60 * 10); // 10min em falha
+      }
+    }));
+
 
     // 3) Filtrar os débitos apenas do company desejado e montar tarefas de busca de URL
     type Task = { bill: number; inst: number; tipo: 'vencido' | 'aberto' };
     const tasks: Task[] = [];
+    const seen = new Set<string>();
+    const pushTask = (bill: number, inst: number, tipo: 'vencido' | 'aberto') => {
+      const k = `${bill}:${inst}:${tipo}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      tasks.push({ bill, inst, tipo });
+    };
 
     for (const debito of debitosList) {
       const bill: number = Number(debito.billReceivableId);
       if (billCompanyMap.get(bill) !== companyId) continue;
 
       for (const inst of debito.dueInstallments ?? []) {
-        tasks.push({ bill, inst: Number(inst.installmentId), tipo: 'vencido' });
+        // tasks.push({ bill, inst: Number(inst.installmentId), tipo: 'vencido' });
+        pushTask(bill, Number(inst.installmentId), 'vencido');
       }
       for (const inst of debito.payableInstallments ?? []) {
         if (!inst.generatedBoleto) continue;
-        tasks.push({ bill, inst: Number(inst.installmentId), tipo: 'aberto' });
+        // tasks.push({ bill, inst: Number(inst.installmentId), tipo: 'aberto' });
+        pushTask(bill, Number(inst.installmentId), 'aberto');
       }
     }
 
@@ -225,16 +266,70 @@ export class BoletosService {
     const vencidos: Array<{ parcela: number; bill: number; link: string | null }> = [];
     const emAberto: Array<{ parcela: number; bill: number; link: string | null }> = [];
 
-    const resultados = await Promise.all(
-      tasks.map(t =>
-        BuscarBoletoClienteService(t.bill, t.inst)
-          .then((info: any) => {
-            const found = info?.results?.find((r: any) => r?.urlReport);
-            return { ...t, url: found?.urlReport ?? null };
-          })
-          .catch(() => ({ ...t, url: null })),
-      ),
-    );
+    // const resultados = await Promise.all(
+    //   tasks.map(t =>
+    //     BuscarBoletoClienteService(t.bill, t.inst)
+    //       .then((info: any) => {
+    //         const found = info?.results?.find((r: any) => r?.urlReport);
+    //         return { ...t, url: found?.urlReport ?? null };
+    //       })
+    //       .catch(() => ({ ...t, url: null })),
+    //   ),
+    // );
+
+    // const resultados = await withLimit(6, tasks.map((t) => async () => {
+    //   const ckey = `url:${t.bill}:${t.inst}`;
+    //   const cached = cacheGet<string | null>(ckey);
+    //   if (cached !== undefined) {
+    //     return { ...t, url: cached }; // pode ser null (cache de falha)
+    //   }
+
+    //   try {
+    //     const info: any = await BuscarBoletoClienteService(t.bill, t.inst); // usa axiosSienge internamente
+    //     const found = info?.results?.find((r: any) => r?.urlReport);
+    //     const url = found?.urlReport ?? null;
+
+    //     cacheSet(ckey, url, 1000 * 60 * 60 * 6); // 6h
+    //     return { ...t, url };
+    //   } catch {
+    //     cacheSet(ckey, null, 1000 * 60 * 10); // 10min em erro para não martelar
+    //     return { ...t, url: null };
+    //   }
+    // }));
+
+    const resultados = await withLimit(10, tasks.map((t) => async () => {
+      const ckey = `url:${t.bill}:${t.inst}`;
+      const cached = cacheGet<string | null>(ckey);
+      if (cached !== undefined) {
+        return { ...t, url: cached };
+      }
+
+      // Orçamento de tempo interno por parcela (cancela lento sem travar o todo)
+      const controller = new AbortController();
+      const budgetMs = 5000; // 5s por parcela
+      const timer = setTimeout(() => controller.abort(), budgetMs);
+
+      try {
+        const res = await dedupePromise(ckey, async () => {
+          const info: any = await axiosSienge.get(
+            '/payment-slip-notification',
+            { params: { billReceivableId: t.bill, installmentId: t.inst }, signal: controller.signal }
+          );
+          if (info?.status < 200 || info?.status >= 300) return null;
+          const data = info.data;
+          const found = data?.results?.find((r: any) => r?.urlReport);
+          return found?.urlReport ?? null;
+        });
+
+        clearTimeout(timer);
+        cacheSet(ckey, res, 1000 * 60 * 60 * 6);
+        return { ...t, url: res };
+      } catch {
+        clearTimeout(timer);
+        cacheSet(ckey, null, 1000 * 60 * 10);
+        return { ...t, url: null };
+      }
+    }));
 
     for (const r of resultados) {
       const alvo = r.tipo === 'vencido' ? vencidos : emAberto;
@@ -377,33 +472,57 @@ export class BoletosService {
       { companyId: number; nome: string }
     >();
 
-    await Promise.all(
-      contratos.map((bill: number) =>
-        axios
-          .get(
-            `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
-            {
-              auth: {
-                username: 'mundoplanalto-brayan',
-                password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
-              },
-            },
-          )
-          .then((res) => {
-            const dados = {
-              companyId: res.data.companyId,
-              nome: res.data.enterpriseName,
-            };
-            billCompanyMap.set(bill, dados);
-            return { bill, ...dados };
-          })
-          .catch(() => {
-            const dados = { companyId: 0, nome: 'não identificado' };
-            billCompanyMap.set(bill, dados);
-            return { bill, ...dados };
-          }),
-      ),
-    );
+    // await Promise.all(
+    //   contratos.map((bill: number) =>
+    //     axios
+    //       .get(
+    //         `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
+    //         {
+    //           auth: {
+    //             username: 'mundoplanalto-brayan',
+    //             password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
+    //           },
+    //         },
+    //       )
+    //       .then((res) => {
+    //         const dados = {
+    //           companyId: res.data.companyId,
+    //           nome: res.data.enterpriseName,
+    //         };
+    //         billCompanyMap.set(bill, dados);
+    //         return { bill, ...dados };
+    //       })
+    //       .catch(() => {
+    //         const dados = { companyId: 0, nome: 'não identificado' };
+    //         billCompanyMap.set(bill, dados);
+    //         return { bill, ...dados };
+    //       }),
+    //   ),
+    // );
+
+    await withLimit(10, contratos.map((bill: number) => async () => {
+      const ck = `billMeta:${bill}`;
+      const cached = cacheGet<{ companyId: number; nome: string }>(ck);
+      if (cached) {
+        billCompanyMap.set(bill, cached);
+        return;
+      }
+
+      try {
+        const res = await axiosSienge.get(`/accounts-receivable/receivable-bills/${bill}`);
+        const meta = {
+          companyId: Number(res.data?.companyId ?? 0),
+          nome: String(res.data?.enterpriseName ?? 'não identificado'),
+        };
+        billCompanyMap.set(bill, meta);
+        cacheSet(ck, meta, 1000 * 60 * 60 * 12); // TTL 12h
+      } catch {
+        const meta = { companyId: 0, nome: 'não identificado' };
+        billCompanyMap.set(bill, meta);
+        cacheSet(ck, meta, 1000 * 60 * 10); // 10min em caso de falha
+      }
+    }));
+
 
     type Task = {
       companyId: number;
@@ -412,6 +531,13 @@ export class BoletosService {
       tipo: 'vencido' | 'aberto';
     };
     const tasks: Task[] = [];
+    const seen = new Set<string>();
+    const pushTask = (bill: number, inst: number, tipo: 'vencido' | 'aberto', companyId: number) => {
+      const k = `${bill}:${inst}:${tipo}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      tasks.push({ companyId, bill, inst, tipo });
+    };
 
     for (const debito of debitosList) {
       const bill: number = debito.billReceivableId;
@@ -433,12 +559,13 @@ export class BoletosService {
           bill,
           link: null,
         });
-        tasks.push({
-          companyId,
-          bill,
-          inst: inst.installmentId,
-          tipo: 'vencido',
-        });
+        pushTask(bill, Number(inst.installmentId), 'vencido', companyId);
+        // tasks.push({
+        //   companyId,
+        //   bill,
+        //   inst: inst.installmentId,
+        //   tipo: 'vencido',
+        // });
       }
 
       for (const inst of debito.payableInstallments ?? []) {
@@ -448,38 +575,91 @@ export class BoletosService {
           bill,
           link: null,
         });
-        tasks.push({
-          companyId,
-          bill,
-          inst: inst.installmentId,
-          tipo: 'aberto',
-        });
+        pushTask(bill, Number(inst.installmentId), 'aberto', companyId);
+        // tasks.push({
+        //   companyId,
+        //   bill,
+        //   inst: inst.installmentId,
+        //   tipo: 'aberto',
+        // });
       }
     }
 
     // buscar URL de cada parcela
-    const resultados = await Promise.all(
-      tasks.map((t) =>
-        BuscarBoletoClienteService(Number(t.bill), Number(t.inst))
-          .then((info: any) => {
-            const found = info.results?.find((r: any) => r.urlReport);
-            return {
-              companyId: t.companyId,
-              tipo: t.tipo,
-              inst: t.inst,
-              bill: t.bill,
-              url: found?.urlReport ?? null,
-            };
-          })
-          .catch(() => ({
-            companyId: t.companyId,
-            tipo: t.tipo,
-            inst: t.inst,
-            bill: t.bill,
-            url: null,
-          })),
-      ),
-    );
+    // const resultados = await Promise.all(
+    //   tasks.map((t) =>
+    //     BuscarBoletoClienteService(Number(t.bill), Number(t.inst))
+    //       .then((info: any) => {
+    //         const found = info.results?.find((r: any) => r.urlReport);
+    //         return {
+    //           companyId: t.companyId,
+    //           tipo: t.tipo,
+    //           inst: t.inst,
+    //           bill: t.bill,
+    //           url: found?.urlReport ?? null,
+    //         };
+    //       })
+    //       .catch(() => ({
+    //         companyId: t.companyId,
+    //         tipo: t.tipo,
+    //         inst: t.inst,
+    //         bill: t.bill,
+    //         url: null,
+    //       })),
+    //   ),
+    // );
+
+    // const resultados = await withLimit(10, tasks.map((t) => async () => {
+    //   const ckey = `url:${t.bill}:${t.inst}`;
+    //   const cached = cacheGet<string | null>(ckey);
+    //   if (cached !== undefined) {
+    //     return { ...t, url: cached }; // pode ser null (cache de falha)
+    //   }
+
+    //   try {
+    //     const info: any = await BuscarBoletoClienteService(Number(t.bill), Number(t.inst));
+    //     const found = info?.results?.find((r: any) => r?.urlReport);
+    //     const url = found?.urlReport ?? null;
+
+    //     cacheSet(ckey, url, 1000 * 60 * 60 * 6); // TTL 6h
+    //     return { ...t, url };
+    //   } catch {
+    //     cacheSet(ckey, null, 1000 * 60 * 10); // 10min para não martelar em erro
+    //     return { ...t, url: null };
+    //   }
+    // }));
+
+    const resultados = await withLimit(10, tasks.map((t) => async () => {
+      const ckey = `url:${t.bill}:${t.inst}`;
+      const cached = cacheGet<string | null>(ckey);
+      if (cached !== undefined) {
+        return { ...t, url: cached };
+      }
+
+      const controller = new AbortController();
+      const budgetMs = 5000; // 5s por parcela
+      const timer = setTimeout(() => controller.abort(), budgetMs);
+
+      try {
+        const url = await dedupePromise(ckey, async () => {
+          const info: any = await axiosSienge.get('/payment-slip-notification', {
+            params: { billReceivableId: Number(t.bill), installmentId: Number(t.inst) },
+            signal: controller.signal
+          });
+          if (info?.status < 200 || info?.status >= 300) return null;
+          const found = info?.data?.results?.find((r: any) => r?.urlReport);
+          return found?.urlReport ?? null;
+        });
+
+        clearTimeout(timer);
+        cacheSet(ckey, url, 1000 * 60 * 60 * 6);
+        return { ...t, url };
+      } catch {
+        clearTimeout(timer);
+        cacheSet(ckey, null, 1000 * 60 * 10);
+        return { ...t, url: null };
+      }
+    }));    
 
     // aplicar URLs no agrupado
     for (const { companyId, tipo, inst, bill, url } of resultados) {
@@ -504,7 +684,7 @@ export class BoletosService {
     }
 
     // PDF unificado (base64)
-    const pdfUnificado = await this.gerarPdfUnificadoPorEmpresas(agrupado, doc);
+    // const pdfUnificado = await this.gerarPdfUnificadoPorEmpresas(agrupado, doc);
 
     return {
       mensagem: Object.keys(boletosFinal).length
@@ -513,7 +693,7 @@ export class BoletosService {
       cliente: nomeCliente,
       companyIds: Array.from(companyIds),
       boletos: boletosFinal,
-      pdf: pdfUnificado,
+      // pdf: pdfUnificado,
     };
   }
 
@@ -541,56 +721,109 @@ export class BoletosService {
   // ======== Novos: PDFs com descriptografia (qpdf) ========
 
   // helper: unifica PDFs a partir de URLs (descriptografa com senha baseada no CPF)
+  // private async gerarPdfUnificadoPorLinks(
+  //   urls: string[],
+  //   doc: string,
+  // ): Promise<Buffer | null> {
+  //   if (!urls?.length) return null;
+
+  //   // const senha = cpf.replace(/\D/g, '').slice(0, 5);
+  //   const senha = pdfPasswordFromDoc(doc);
+  //   const pdfDoc = await PDFDocument.create();
+  //   let temPagina = false;
+
+  //   for (const url of urls) {
+  //     if (!url) continue;
+  //     try {
+  //       const resp = await axios.get(url, { responseType: 'arraybuffer' });
+  //       const encrypted = Buffer.from(resp.data);
+
+  //       const inPath = path.join(
+  //         os.tmpdir(),
+  //         `enc-${Date.now()}-${Math.random()}.pdf`,
+  //       );
+  //       const outPath = path.join(
+  //         os.tmpdir(),
+  //         `dec-${Date.now()}-${Math.random()}.pdf`,
+  //       );
+  //       fs.writeFileSync(inPath, encrypted);
+
+  //       const comando = `qpdf --password=${senha} --decrypt "${inPath}" "${outPath}"`;
+  //       execFileSync(comando, { shell: true });
+
+  //       const decryptedBytes = fs.readFileSync(outPath);
+  //       const boletoPdf = await PDFDocument.load(decryptedBytes);
+  //       const pages = await pdfDoc.copyPages(
+  //         boletoPdf,
+  //         boletoPdf.getPageIndices(),
+  //       );
+  //       pages.forEach((p) => pdfDoc.addPage(p));
+  //       temPagina = true;
+
+  //       fs.unlinkSync(inPath);
+  //       fs.unlinkSync(outPath);
+  //     } catch {
+  //       // segue para a próxima URL
+  //     }
+  //   }
+
+  //   if (!temPagina) return null;
+  //   const mergedBytes = await pdfDoc.save();
+  //   return Buffer.from(mergedBytes);
+  // }
+
   private async gerarPdfUnificadoPorLinks(
     urls: string[],
     doc: string,
   ): Promise<Buffer | null> {
     if (!urls?.length) return null;
 
-    // const senha = cpf.replace(/\D/g, '').slice(0, 5);
     const senha = pdfPasswordFromDoc(doc);
     const pdfDoc = await PDFDocument.create();
-    let temPagina = false;
 
-    for (const url of urls) {
-      if (!url) continue;
+    // 1) baixa + decripta em paralelo (limite 6)
+    type PdfPart = { ok: boolean; bytes?: Uint8Array };
+    const parts: PdfPart[] = await withLimit(6, urls.map((url) => async () => {
+      if (!url) return { ok: false };
       try {
-        const resp = await axios.get(url, { responseType: 'arraybuffer' });
+        const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
         const encrypted = Buffer.from(resp.data);
 
-        const inPath = path.join(
-          os.tmpdir(),
-          `enc-${Date.now()}-${Math.random()}.pdf`,
-        );
-        const outPath = path.join(
-          os.tmpdir(),
-          `dec-${Date.now()}-${Math.random()}.pdf`,
-        );
+        const inPath = path.join(os.tmpdir(), `enc-${Date.now()}-${Math.random()}.pdf`);
+        const outPath = path.join(os.tmpdir(), `dec-${Date.now()}-${Math.random()}.pdf`);
         fs.writeFileSync(inPath, encrypted);
 
         const comando = `qpdf --password=${senha} --decrypt "${inPath}" "${outPath}"`;
         execFileSync(comando, { shell: true });
 
         const decryptedBytes = fs.readFileSync(outPath);
-        const boletoPdf = await PDFDocument.load(decryptedBytes);
-        const pages = await pdfDoc.copyPages(
-          boletoPdf,
-          boletoPdf.getPageIndices(),
-        );
-        pages.forEach((p) => pdfDoc.addPage(p));
-        temPagina = true;
-
         fs.unlinkSync(inPath);
         fs.unlinkSync(outPath);
+
+        return { ok: true, bytes: decryptedBytes };
       } catch {
-        // segue para a próxima URL
+        return { ok: false };
+      }
+    }));
+
+    // 2) merge sequencial (rápido)
+    let temPagina = false;
+    for (const p of parts) {
+      if (!p.ok || !p.bytes) continue;
+      try {
+        const boletoPdf = await PDFDocument.load(p.bytes);
+        const pages = await pdfDoc.copyPages(boletoPdf, boletoPdf.getPageIndices());
+        pages.forEach((pg) => pdfDoc.addPage(pg));
+        temPagina = true;
+      } catch {
+        // ignora arquivo ruim
       }
     }
 
     if (!temPagina) return null;
     const mergedBytes = await pdfDoc.save();
     return Buffer.from(mergedBytes);
-  }
+  }  
 
   // PDF de Todos os empreendimentos do CPF (igual “todos-empreendimentos/pdf”)
   async gerarPdfTodosEmpreendimentos(
@@ -712,15 +945,21 @@ export class BoletosService {
     await Promise.all(
       bills.map(async (bill: number) => {
         try {
-          const { data } = await axios.get(
-            `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
-            {
-              auth: {
-                username: 'mundoplanalto-brayan',
-                password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
-              },
-            },
+          // const { data } = await axios.get(
+          //   `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
+          //   {
+          //     auth: {
+          //       username: 'mundoplanalto-brayan',
+          //       password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
+          //     },
+          //   },
+          // );
+
+          const { data } = await axiosSienge.get(
+            `/accounts-receivable/receivable-bills/${bill}`
           );
+
+
           billCompanyMap.set(bill, Number(data.companyId ?? 0));
         } catch {
           billCompanyMap.set(bill, 0);
@@ -788,58 +1027,116 @@ export class BoletosService {
     );
   }
 
+  // private async gerarPdfUnificadoPorEmpresas(
+  //   agrupado: Record<string, { vencidos: any[]; emAberto: any[] }>,
+  //   doc: string,
+  // ): Promise<string | null> {
+  //   const senha = pdfPasswordFromDoc(doc);
+  //   // const senha = cpf.replace(/\D/g, '').slice(0, 5);
+  //   const pdfDoc = await PDFDocument.create();
+  //   let temPagina = false;
+
+  //   for (const [, dados] of Object.entries(agrupado)) {
+  //     for (const boleto of [...dados.vencidos, ...dados.emAberto]) {
+  //       if (!boleto.link) continue;
+  //       try {
+  //         const resp = await axios.get(boleto.link, {
+  //           responseType: 'arraybuffer',
+  //         });
+  //         const encrypted = Buffer.from(resp.data);
+
+  //         const inPath = path.join(
+  //           os.tmpdir(),
+  //           `enc-${Date.now()}-${Math.random()}.pdf`,
+  //         );
+  //         const outPath = path.join(
+  //           os.tmpdir(),
+  //           `dec-${Date.now()}-${Math.random()}.pdf`,
+  //         );
+  //         fs.writeFileSync(inPath, encrypted);
+
+  //         const comando = `qpdf --password=${senha} --decrypt "${inPath}" "${outPath}"`;
+  //         execFileSync(comando, { shell: true });
+
+  //         const decryptedBytes = fs.readFileSync(outPath);
+  //         const boletoPdf = await PDFDocument.load(decryptedBytes);
+  //         const pages = await pdfDoc.copyPages(
+  //           boletoPdf,
+  //           boletoPdf.getPageIndices(),
+  //         );
+  //         pages.forEach((p) => pdfDoc.addPage(p));
+  //         temPagina = true;
+
+  //         fs.unlinkSync(inPath);
+  //         fs.unlinkSync(outPath);
+  //       } catch {
+  //         // pula URL quebrada e segue
+  //       }
+  //     }
+  //   }
+
+  //   if (!temPagina) return null;
+  //   const mergedBytes = await pdfDoc.save();
+  //   return `data:application/pdf;base64,${Buffer.from(mergedBytes).toString('base64')}`;
+  // }
+
   private async gerarPdfUnificadoPorEmpresas(
     agrupado: Record<string, { vencidos: any[]; emAberto: any[] }>,
     doc: string,
   ): Promise<string | null> {
     const senha = pdfPasswordFromDoc(doc);
-    // const senha = cpf.replace(/\D/g, '').slice(0, 5);
     const pdfDoc = await PDFDocument.create();
-    let temPagina = false;
 
+    // 1) junta todas as URLs (mantendo sua lógica)
+    const urls: string[] = [];
     for (const [, dados] of Object.entries(agrupado)) {
       for (const boleto of [...dados.vencidos, ...dados.emAberto]) {
-        if (!boleto.link) continue;
-        try {
-          const resp = await axios.get(boleto.link, {
-            responseType: 'arraybuffer',
-          });
-          const encrypted = Buffer.from(resp.data);
+        if (boleto.link) urls.push(boleto.link);
+      }
+    }
+    if (!urls.length) return null;
 
-          const inPath = path.join(
-            os.tmpdir(),
-            `enc-${Date.now()}-${Math.random()}.pdf`,
-          );
-          const outPath = path.join(
-            os.tmpdir(),
-            `dec-${Date.now()}-${Math.random()}.pdf`,
-          );
-          fs.writeFileSync(inPath, encrypted);
+    // 2) baixa + decripta em paralelo
+    type PdfPart = { ok: boolean; bytes?: Uint8Array };
+    const parts: PdfPart[] = await withLimit(6, urls.map((url) => async () => {
+      try {
+        const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
+        const encrypted = Buffer.from(resp.data);
 
-          const comando = `qpdf --password=${senha} --decrypt "${inPath}" "${outPath}"`;
-          execFileSync(comando, { shell: true });
+        const inPath = path.join(os.tmpdir(), `enc-${Date.now()}-${Math.random()}.pdf`);
+        const outPath = path.join(os.tmpdir(), `dec-${Date.now()}-${Math.random()}.pdf`);
+        fs.writeFileSync(inPath, encrypted);
 
-          const decryptedBytes = fs.readFileSync(outPath);
-          const boletoPdf = await PDFDocument.load(decryptedBytes);
-          const pages = await pdfDoc.copyPages(
-            boletoPdf,
-            boletoPdf.getPageIndices(),
-          );
-          pages.forEach((p) => pdfDoc.addPage(p));
-          temPagina = true;
+        execFileSync(`qpdf --password=${senha} --decrypt "${inPath}" "${outPath}"`, { shell: true });
 
-          fs.unlinkSync(inPath);
-          fs.unlinkSync(outPath);
-        } catch {
-          // pula URL quebrada e segue
-        }
+        const dec = fs.readFileSync(outPath);
+        fs.unlinkSync(inPath);
+        fs.unlinkSync(outPath);
+
+        return { ok: true, bytes: dec };
+      } catch {
+        return { ok: false };
+      }
+    }));
+
+    // 3) merge sequencial
+    let temPagina = false;
+    for (const p of parts) {
+      if (!p.ok || !p.bytes) continue;
+      try {
+        const boletoPdf = await PDFDocument.load(p.bytes);
+        const pages = await pdfDoc.copyPages(boletoPdf, boletoPdf.getPageIndices());
+        pages.forEach((pg) => pdfDoc.addPage(pg));
+        temPagina = true;
+      } catch {
+        // ignora
       }
     }
 
     if (!temPagina) return null;
     const mergedBytes = await pdfDoc.save();
     return `data:application/pdf;base64,${Buffer.from(mergedBytes).toString('base64')}`;
-  }
+  }  
 
   async gerarPdfBufferUnificado(cpf: string): Promise<Buffer | null> {
     // 1) extrai Todos os boletos
@@ -871,34 +1168,62 @@ export class BoletosService {
     const pdfDoc = await PDFDocument.create();
     let temPagina = false;
 
-    for (const url of urls) {
+    // for (const url of urls) {
+    //   try {
+    //     const resp = await axios.get(url, { responseType: 'arraybuffer' });
+    //     const encrypted = Buffer.from(resp.data);
+    //     const inPath = path.join(os.tmpdir(), `enc-${Date.now()}.pdf`);
+    //     const outPath = path.join(os.tmpdir(), `dec-${Date.now()}.pdf`);
+    //     fs.writeFileSync(inPath, encrypted);
+
+    //     execFileSync(
+    //       `qpdf --password=${senha} --decrypt "${inPath}" "${outPath}"`,
+    //       { shell: true },
+    //     );
+
+    //     const decryptedBytes = fs.readFileSync(outPath);
+    //     const boletoPdf = await PDFDocument.load(decryptedBytes);
+    //     const pages = await pdfDoc.copyPages(
+    //       boletoPdf,
+    //       boletoPdf.getPageIndices(),
+    //     );
+    //     pages.forEach(p => pdfDoc.addPage(p));
+    //     temPagina = true;
+
+    //     fs.unlinkSync(inPath);
+    //     fs.unlinkSync(outPath);
+    //   } catch {
+    //     // se falhar em um, apenas pula
+    //   }
+    // }
+
+    const parts = await withLimit(6, urls.map((url) => async () => {
       try {
-        const resp = await axios.get(url, { responseType: 'arraybuffer' });
+        const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
         const encrypted = Buffer.from(resp.data);
-        const inPath = path.join(os.tmpdir(), `enc-${Date.now()}.pdf`);
-        const outPath = path.join(os.tmpdir(), `dec-${Date.now()}.pdf`);
+        const inPath = path.join(os.tmpdir(), `enc-${Date.now()}-${Math.random()}.pdf`);
+        const outPath = path.join(os.tmpdir(), `dec-${Date.now()}-${Math.random()}.pdf`);
         fs.writeFileSync(inPath, encrypted);
-
-        execFileSync(
-          `qpdf --password=${senha} --decrypt "${inPath}" "${outPath}"`,
-          { shell: true },
-        );
-
-        const decryptedBytes = fs.readFileSync(outPath);
-        const boletoPdf = await PDFDocument.load(decryptedBytes);
-        const pages = await pdfDoc.copyPages(
-          boletoPdf,
-          boletoPdf.getPageIndices(),
-        );
-        pages.forEach(p => pdfDoc.addPage(p));
-        temPagina = true;
-
-        fs.unlinkSync(inPath);
-        fs.unlinkSync(outPath);
+        execFileSync(`qpdf --password=${senha} --decrypt "${inPath}" "${outPath}"`, { shell: true });
+        const dec = fs.readFileSync(outPath);
+        fs.unlinkSync(inPath); fs.unlinkSync(outPath);
+        return { ok: true, bytes: dec as Uint8Array };
       } catch {
-        // se falhar em um, apenas pula
+        return { ok: false as const };
       }
-    }
+    }));
+
+    for (const p of parts) {
+      if (!p.ok || !p.bytes) continue;
+      try {
+        const boletoPdf = await PDFDocument.load(p.bytes);
+        const pages = await pdfDoc.copyPages(boletoPdf, boletoPdf.getPageIndices());
+        pages.forEach((pg) => pdfDoc.addPage(pg));
+        temPagina = true;
+      } catch {
+        // ignore
+      }
+    }    
 
     if (!temPagina) return null;
     const mergedBytes = await pdfDoc.save();
