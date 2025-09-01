@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Injectable } from '@nestjs/common';
@@ -450,252 +451,426 @@ export class BoletosService {
   }
 
   // ------------- Todos Empreendimentos -------------
-  async emitirTodosEmpreendimentos(params: { cpf: string }) {
-    const { cpf: doc } = params;
+  // async emitirTodosEmpreendimentos(params: { cpf: string }) {
+  //   const { cpf: doc } = params;
 
-    const cliente = await BuscarClienteSiengeService(doc);
-    const nomeCliente = (cliente as any)?.results?.[0]?.name || 'cliente';
+  //   const cliente = await BuscarClienteSiengeService(doc);
+  //   const nomeCliente = (cliente as any)?.results?.[0]?.name || 'cliente';
 
-    const debitos = await BuscarDebitoClienteService(doc);
-    const debitosList = (debitos as any).results ?? [];
+  //   const debitos = await BuscarDebitoClienteService(doc);
+  //   const debitosList = (debitos as any).results ?? [];
 
-    const agrupado: Record<string, { vencidos: any[]; emAberto: any[] }> = {};
-    const companyIds = new Set<number>();
+  //   const agrupado: Record<string, { vencidos: any[]; emAberto: any[] }> = {};
+  //   const companyIds = new Set<number>();
 
-    const contratos: number[] = Array.from(
-      new Set<number>(debitosList.map((d: any) => Number(d.billReceivableId))),
-    );
+  //   const contratos: number[] = Array.from(
+  //     new Set<number>(debitosList.map((d: any) => Number(d.billReceivableId))),
+  //   );
 
-    // cache local bill -> { companyId, enterpriseName }
-    const billCompanyMap = new Map<
-      number,
-      { companyId: number; nome: string }
-    >();
+  //   // cache local bill -> { companyId, enterpriseName }
+  //   const billCompanyMap = new Map<
+  //     number,
+  //     { companyId: number; nome: string }
+  //   >();
 
-    // await Promise.all(
-    //   contratos.map((bill: number) =>
-    //     axios
-    //       .get(
-    //         `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
-    //         {
-    //           auth: {
-    //             username: 'mundoplanalto-brayan',
-    //             password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
-    //           },
-    //         },
-    //       )
-    //       .then((res) => {
-    //         const dados = {
-    //           companyId: res.data.companyId,
-    //           nome: res.data.enterpriseName,
-    //         };
-    //         billCompanyMap.set(bill, dados);
-    //         return { bill, ...dados };
-    //       })
-    //       .catch(() => {
-    //         const dados = { companyId: 0, nome: 'não identificado' };
-    //         billCompanyMap.set(bill, dados);
-    //         return { bill, ...dados };
-    //       }),
-    //   ),
-    // );
+  //   // await Promise.all(
+  //   //   contratos.map((bill: number) =>
+  //   //     axios
+  //   //       .get(
+  //   //         `https://api.sienge.com.br/mundoplanalto/public/api/v1/accounts-receivable/receivable-bills/${bill}`,
+  //   //         {
+  //   //           auth: {
+  //   //             username: 'mundoplanalto-brayan',
+  //   //             password: 'msp29bmeOhMcBcxusnLy2sHO1U0jnng1',
+  //   //           },
+  //   //         },
+  //   //       )
+  //   //       .then((res) => {
+  //   //         const dados = {
+  //   //           companyId: res.data.companyId,
+  //   //           nome: res.data.enterpriseName,
+  //   //         };
+  //   //         billCompanyMap.set(bill, dados);
+  //   //         return { bill, ...dados };
+  //   //       })
+  //   //       .catch(() => {
+  //   //         const dados = { companyId: 0, nome: 'não identificado' };
+  //   //         billCompanyMap.set(bill, dados);
+  //   //         return { bill, ...dados };
+  //   //       }),
+  //   //   ),
+  //   // );
 
-    await withLimit(10, contratos.map((bill: number) => async () => {
-      const ck = `billMeta:${bill}`;
-      const cached = cacheGet<{ companyId: number; nome: string }>(ck);
-      if (cached) {
-        billCompanyMap.set(bill, cached);
-        return;
-      }
+  //   await withLimit(10, contratos.map((bill: number) => async () => {
+  //     const ck = `billMeta:${bill}`;
+  //     const cached = cacheGet<{ companyId: number; nome: string }>(ck);
+  //     if (cached) {
+  //       billCompanyMap.set(bill, cached);
+  //       return;
+  //     }
 
-      try {
-        const res = await axiosSienge.get(`/accounts-receivable/receivable-bills/${bill}`);
-        const meta = {
-          companyId: Number(res.data?.companyId ?? 0),
-          nome: String(res.data?.enterpriseName ?? 'não identificado'),
-        };
-        billCompanyMap.set(bill, meta);
-        cacheSet(ck, meta, 1000 * 60 * 60 * 12); // TTL 12h
-      } catch {
-        const meta = { companyId: 0, nome: 'não identificado' };
-        billCompanyMap.set(bill, meta);
-        cacheSet(ck, meta, 1000 * 60 * 10); // 10min em caso de falha
-      }
-    }));
+  //     try {
+  //       const res = await axiosSienge.get(`/accounts-receivable/receivable-bills/${bill}`);
+  //       const meta = {
+  //         companyId: Number(res.data?.companyId ?? 0),
+  //         nome: String(res.data?.enterpriseName ?? 'não identificado'),
+  //       };
+  //       billCompanyMap.set(bill, meta);
+  //       cacheSet(ck, meta, 1000 * 60 * 60 * 12); // TTL 12h
+  //     } catch {
+  //       const meta = { companyId: 0, nome: 'não identificado' };
+  //       billCompanyMap.set(bill, meta);
+  //       cacheSet(ck, meta, 1000 * 60 * 10); // 10min em caso de falha
+  //     }
+  //   }));
 
 
-    type Task = {
-      companyId: number;
-      inst: number;
-      bill: number;
-      tipo: 'vencido' | 'aberto';
-    };
-    const tasks: Task[] = [];
-    const seen = new Set<string>();
-    const pushTask = (bill: number, inst: number, tipo: 'vencido' | 'aberto', companyId: number) => {
-      const k = `${bill}:${inst}:${tipo}`;
-      if (seen.has(k)) return;
-      seen.add(k);
-      tasks.push({ companyId, bill, inst, tipo });
-    };
+  //   type Task = {
+  //     companyId: number;
+  //     inst: number;
+  //     bill: number;
+  //     tipo: 'vencido' | 'aberto';
+  //   };
+  //   const tasks: Task[] = [];
+  //   const seen = new Set<string>();
+  //   const pushTask = (bill: number, inst: number, tipo: 'vencido' | 'aberto', companyId: number) => {
+  //     const k = `${bill}:${inst}:${tipo}`;
+  //     if (seen.has(k)) return;
+  //     seen.add(k);
+  //     tasks.push({ companyId, bill, inst, tipo });
+  //   };
 
-    for (const debito of debitosList) {
-      const bill: number = debito.billReceivableId;
-      const meta = billCompanyMap.get(bill) || {
-        companyId: 0,
-        nome: 'não identificado',
+  //   for (const debito of debitosList) {
+  //     const bill: number = debito.billReceivableId;
+  //     const meta = billCompanyMap.get(bill) || {
+  //       companyId: 0,
+  //       nome: 'não identificado',
+  //     };
+
+  //     const companyId = meta.companyId;
+  //     const nomeEmp = meta.nome;
+  //     if (companyId) companyIds.add(companyId);
+
+  //     const chave = `${companyId} - ${nomeEmp}`;
+  //     agrupado[chave] ??= { vencidos: [], emAberto: [] };
+
+  //     for (const inst of debito.dueInstallments ?? []) {
+  //       agrupado[chave].vencidos.push({
+  //         parcela: inst.installmentId,
+  //         bill,
+  //         link: null,
+  //       });
+  //       pushTask(bill, Number(inst.installmentId), 'vencido', companyId);
+  //       // tasks.push({
+  //       //   companyId,
+  //       //   bill,
+  //       //   inst: inst.installmentId,
+  //       //   tipo: 'vencido',
+  //       // });
+  //     }
+
+  //     for (const inst of debito.payableInstallments ?? []) {
+  //       if (!inst.generatedBoleto) continue;
+  //       agrupado[chave].emAberto.push({
+  //         parcela: inst.installmentId,
+  //         bill,
+  //         link: null,
+  //       });
+  //       pushTask(bill, Number(inst.installmentId), 'aberto', companyId);
+  //       // tasks.push({
+  //       //   companyId,
+  //       //   bill,
+  //       //   inst: inst.installmentId,
+  //       //   tipo: 'aberto',
+  //       // });
+  //     }
+  //   }
+
+  //   // buscar URL de cada parcela
+  //   // const resultados = await Promise.all(
+  //   //   tasks.map((t) =>
+  //   //     BuscarBoletoClienteService(Number(t.bill), Number(t.inst))
+  //   //       .then((info: any) => {
+  //   //         const found = info.results?.find((r: any) => r.urlReport);
+  //   //         return {
+  //   //           companyId: t.companyId,
+  //   //           tipo: t.tipo,
+  //   //           inst: t.inst,
+  //   //           bill: t.bill,
+  //   //           url: found?.urlReport ?? null,
+  //   //         };
+  //   //       })
+  //   //       .catch(() => ({
+  //   //         companyId: t.companyId,
+  //   //         tipo: t.tipo,
+  //   //         inst: t.inst,
+  //   //         bill: t.bill,
+  //   //         url: null,
+  //   //       })),
+  //   //   ),
+  //   // );
+
+  //   // const resultados = await withLimit(10, tasks.map((t) => async () => {
+  //   //   const ckey = `url:${t.bill}:${t.inst}`;
+  //   //   const cached = cacheGet<string | null>(ckey);
+  //   //   if (cached !== undefined) {
+  //   //     return { ...t, url: cached }; // pode ser null (cache de falha)
+  //   //   }
+
+  //   //   try {
+  //   //     const info: any = await BuscarBoletoClienteService(Number(t.bill), Number(t.inst));
+  //   //     const found = info?.results?.find((r: any) => r?.urlReport);
+  //   //     const url = found?.urlReport ?? null;
+
+  //   //     cacheSet(ckey, url, 1000 * 60 * 60 * 6); // TTL 6h
+  //   //     return { ...t, url };
+  //   //   } catch {
+  //   //     cacheSet(ckey, null, 1000 * 60 * 10); // 10min para não martelar em erro
+  //   //     return { ...t, url: null };
+  //   //   }
+  //   // }));
+
+  //   const resultados = await withLimit(10, tasks.map((t) => async () => {
+  //     const ckey = `url:${t.bill}:${t.inst}`;
+  //     const cached = cacheGet<string | null>(ckey);
+  //     if (cached !== undefined) {
+  //       return { ...t, url: cached };
+  //     }
+
+  //     const controller = new AbortController();
+  //     const budgetMs = 5000; // 5s por parcela
+  //     const timer = setTimeout(() => controller.abort(), budgetMs);
+
+  //     try {
+  //       const url = await dedupePromise(ckey, async () => {
+  //         const info: any = await axiosSienge.get('/payment-slip-notification', {
+  //           params: { billReceivableId: Number(t.bill), installmentId: Number(t.inst) },
+  //           signal: controller.signal
+  //         });
+  //         if (info?.status < 200 || info?.status >= 300) return null;
+  //         const found = info?.data?.results?.find((r: any) => r?.urlReport);
+  //         return found?.urlReport ?? null;
+  //       });
+
+  //       clearTimeout(timer);
+  //       cacheSet(ckey, url, 1000 * 60 * 60 * 6);
+  //       return { ...t, url };
+  //     } catch {
+  //       clearTimeout(timer);
+  //       cacheSet(ckey, null, 1000 * 60 * 10);
+  //       return { ...t, url: null };
+  //     }
+  //   }));
+
+  //   // aplicar URLs no agrupado
+  //   for (const { companyId, tipo, inst, bill, url } of resultados) {
+  //     const nomeEmp = billCompanyMap.get(bill)?.nome || 'não identificado';
+  //     const chave = `${companyId} - ${nomeEmp}`;
+  //     const arr =
+  //       tipo === 'vencido'
+  //         ? agrupado[chave].vencidos
+  //         : agrupado[chave].emAberto;
+  //     const obj = arr.find((o: any) => o.parcela === inst && o.bill === bill);
+  //     if (obj) obj.link = url;
+  //   }
+
+  //   // montar objeto final
+  //   const boletosFinal: Record<string, any> = {};
+  //   for (const [chave, dados] of Object.entries(agrupado)) {
+  //     boletosFinal[chave] = {
+  //       total: dados.vencidos.length + dados.emAberto.length,
+  //       vencidos: dados.vencidos,
+  //       emAberto: dados.emAberto,
+  //     };
+  //   }
+
+  //   // PDF unificado (base64)
+  //   // const pdfUnificado = await this.gerarPdfUnificadoPorEmpresas(agrupado, doc);
+
+  //   return {
+  //     mensagem: Object.keys(boletosFinal).length
+  //       ? `📄 Olá, *${nomeCliente}*! Encontramos boletos por empreendimento.`
+  //       : `📄 Olá, *${nomeCliente}*! Não há boletos disponíveis.`,
+  //     cliente: nomeCliente,
+  //     companyIds: Array.from(companyIds),
+  //     boletos: boletosFinal,
+  //     // pdf: pdfUnificado,
+  //   };
+  // }
+// ------------- Todos Empreendimentos (com poda para até N itens) -------------
+async emitirTodosEmpreendimentos(params: { cpf: string }) {
+  const { cpf: doc } = params;
+
+  // limite global de itens retornados (prioriza vencidos)
+  const MAX_ITEMS = Number(process.env.TODOS_MAX_ITEMS ?? 20);
+
+  const cliente = await BuscarClienteSiengeService(doc);
+  const nomeCliente = (cliente as any)?.results?.[0]?.name || 'cliente';
+
+  // 1) Buscar todos os débitos do CPF
+  const debitos = await BuscarDebitoClienteService(doc);
+  const debitosList = (debitos as any).results ?? [];
+
+  // 2) Mapear bill -> companyId / enterpriseName (com cache)
+  const contratos: number[] = Array.from(
+    new Set<number>(debitosList.map((d: any) => Number(d.billReceivableId))),
+  );
+
+  const billCompanyMap = new Map<number, { companyId: number; nome: string }>();
+  await withLimit(10, contratos.map((bill: number) => async () => {
+    const ck = `billMeta:${bill}`;
+    const cached = cacheGet<{ companyId: number; nome: string }>(ck);
+    if (cached) { billCompanyMap.set(bill, cached); return; }
+
+    try {
+      const res = await axiosSienge.get(`/accounts-receivable/receivable-bills/${bill}`);
+      const meta = {
+        companyId: Number(res.data?.companyId ?? 0),
+        nome: String(res.data?.enterpriseName ?? 'não identificado'),
       };
+      billCompanyMap.set(bill, meta);
+      cacheSet(ck, meta, 1000 * 60 * 60 * 12);
+    } catch {
+      const meta = { companyId: 0, nome: 'não identificado' };
+      billCompanyMap.set(bill, meta);
+      cacheSet(ck, meta, 1000 * 60 * 10);
+    }
+  }));
 
-      const companyId = meta.companyId;
-      const nomeEmp = meta.nome;
-      if (companyId) companyIds.add(companyId);
+  // 3) Montar agrupamento + lista global de tasks
+  type Task = {
+    companyId: number;
+    inst: number;
+    bill: number;
+    tipo: 'vencido' | 'aberto';
+  };
 
-      const chave = `${companyId} - ${nomeEmp}`;
-      agrupado[chave] ??= { vencidos: [], emAberto: [] };
+  const agrupado: Record<string, { vencidos: any[]; emAberto: any[] }> = {};
+  const companyIds = new Set<number>();
+  const tasksVenc: Task[] = [];
+  const tasksAbert: Task[] = [];
+  const seen = new Set<string>();
 
-      for (const inst of debito.dueInstallments ?? []) {
-        agrupado[chave].vencidos.push({
-          parcela: inst.installmentId,
-          bill,
-          link: null,
-        });
-        pushTask(bill, Number(inst.installmentId), 'vencido', companyId);
-        // tasks.push({
-        //   companyId,
-        //   bill,
-        //   inst: inst.installmentId,
-        //   tipo: 'vencido',
-        // });
-      }
+  const pushTask = (t: Task) => {
+    const k = `${t.bill}:${t.inst}:${t.tipo}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    (t.tipo === 'vencido' ? tasksVenc : tasksAbert).push(t);
+  };
 
-      for (const inst of debito.payableInstallments ?? []) {
-        if (!inst.generatedBoleto) continue;
-        agrupado[chave].emAberto.push({
-          parcela: inst.installmentId,
-          bill,
-          link: null,
-        });
-        pushTask(bill, Number(inst.installmentId), 'aberto', companyId);
-        // tasks.push({
-        //   companyId,
-        //   bill,
-        //   inst: inst.installmentId,
-        //   tipo: 'aberto',
-        // });
-      }
+  for (const debito of debitosList) {
+    const bill: number = Number(debito.billReceivableId);
+    const meta = billCompanyMap.get(bill) || { companyId: 0, nome: 'não identificado' };
+    const companyId = meta.companyId;
+    const nomeEmp = meta.nome;
+    if (companyId) companyIds.add(companyId);
+
+    const chave = `${companyId} - ${nomeEmp}`;
+    agrupado[chave] ??= { vencidos: [], emAberto: [] };
+
+    for (const inst of debito.dueInstallments ?? []) {
+      agrupado[chave].vencidos.push({ parcela: inst.installmentId, bill, link: null });
+      pushTask({ companyId, bill, inst: Number(inst.installmentId), tipo: 'vencido' });
+    }
+    for (const inst of debito.payableInstallments ?? []) {
+      if (!inst.generatedBoleto) continue;
+      agrupado[chave].emAberto.push({ parcela: inst.installmentId, bill, link: null });
+      pushTask({ companyId, bill, inst: Number(inst.installmentId), tipo: 'aberto' });
+    }
+  }
+
+  // 4) PODA GLOBAL para até MAX_ITEMS (prioriza vencidos)
+  const totalTasks = tasksVenc.length + tasksAbert.length;
+  let tasksSelecionadas: Task[];
+  if (totalTasks > MAX_ITEMS) {
+    const takeV = tasksVenc.slice(0, MAX_ITEMS);
+    if (takeV.length < MAX_ITEMS) {
+      tasksSelecionadas = takeV.concat(tasksAbert.slice(0, MAX_ITEMS - takeV.length));
+    } else {
+      tasksSelecionadas = takeV;
     }
 
-    // buscar URL de cada parcela
-    // const resultados = await Promise.all(
-    //   tasks.map((t) =>
-    //     BuscarBoletoClienteService(Number(t.bill), Number(t.inst))
-    //       .then((info: any) => {
-    //         const found = info.results?.find((r: any) => r.urlReport);
-    //         return {
-    //           companyId: t.companyId,
-    //           tipo: t.tipo,
-    //           inst: t.inst,
-    //           bill: t.bill,
-    //           url: found?.urlReport ?? null,
-    //         };
-    //       })
-    //       .catch(() => ({
-    //         companyId: t.companyId,
-    //         tipo: t.tipo,
-    //         inst: t.inst,
-    //         bill: t.bill,
-    //         url: null,
-    //       })),
-    //   ),
-    // );
-
-    // const resultados = await withLimit(10, tasks.map((t) => async () => {
-    //   const ckey = `url:${t.bill}:${t.inst}`;
-    //   const cached = cacheGet<string | null>(ckey);
-    //   if (cached !== undefined) {
-    //     return { ...t, url: cached }; // pode ser null (cache de falha)
-    //   }
-
-    //   try {
-    //     const info: any = await BuscarBoletoClienteService(Number(t.bill), Number(t.inst));
-    //     const found = info?.results?.find((r: any) => r?.urlReport);
-    //     const url = found?.urlReport ?? null;
-
-    //     cacheSet(ckey, url, 1000 * 60 * 60 * 6); // TTL 6h
-    //     return { ...t, url };
-    //   } catch {
-    //     cacheSet(ckey, null, 1000 * 60 * 10); // 10min para não martelar em erro
-    //     return { ...t, url: null };
-    //   }
-    // }));
-
-    const resultados = await withLimit(10, tasks.map((t) => async () => {
-      const ckey = `url:${t.bill}:${t.inst}`;
-      const cached = cacheGet<string | null>(ckey);
-      if (cached !== undefined) {
-        return { ...t, url: cached };
-      }
-
-      const controller = new AbortController();
-      const budgetMs = 5000; // 5s por parcela
-      const timer = setTimeout(() => controller.abort(), budgetMs);
-
-      try {
-        const url = await dedupePromise(ckey, async () => {
-          const info: any = await axiosSienge.get('/payment-slip-notification', {
-            params: { billReceivableId: Number(t.bill), installmentId: Number(t.inst) },
-            signal: controller.signal
-          });
-          if (info?.status < 200 || info?.status >= 300) return null;
-          const found = info?.data?.results?.find((r: any) => r?.urlReport);
-          return found?.urlReport ?? null;
-        });
-
-        clearTimeout(timer);
-        cacheSet(ckey, url, 1000 * 60 * 60 * 6);
-        return { ...t, url };
-      } catch {
-        clearTimeout(timer);
-        cacheSet(ckey, null, 1000 * 60 * 10);
-        return { ...t, url: null };
-      }
-    }));    
-
-    // aplicar URLs no agrupado
-    for (const { companyId, tipo, inst, bill, url } of resultados) {
-      const nomeEmp = billCompanyMap.get(bill)?.nome || 'não identificado';
-      const chave = `${companyId} - ${nomeEmp}`;
-      const arr =
-        tipo === 'vencido'
-          ? agrupado[chave].vencidos
-          : agrupado[chave].emAberto;
-      const obj = arr.find((o: any) => o.parcela === inst && o.bill === bill);
-      if (obj) obj.link = url;
-    }
-
-    // montar objeto final
-    const boletosFinal: Record<string, any> = {};
+    // também podar o agrupado para refletir apenas o subset escolhido
+    const keyOf = (t: Task) => `${t.bill}:${t.inst}`;
+    const chosen = new Set<string>(tasksSelecionadas.map(keyOf));
     for (const [chave, dados] of Object.entries(agrupado)) {
-      boletosFinal[chave] = {
-        total: dados.vencidos.length + dados.emAberto.length,
-        vencidos: dados.vencidos,
-        emAberto: dados.emAberto,
-      };
+      dados.vencidos = dados.vencidos.filter((v: any) => chosen.has(`${v.bill}:${v.parcela}`));
+      dados.emAberto = dados.emAberto.filter((v: any) => chosen.has(`${v.bill}:${v.parcela}`));
     }
+  } else {
+    tasksSelecionadas = tasksVenc.concat(tasksAbert);
+  }
 
-    // PDF unificado (base64)
-    // const pdfUnificado = await this.gerarPdfUnificadoPorEmpresas(agrupado, doc);
+  // 5) Buscar URL de cada parcela do subset (rápido: paralelismo + timeout por item)
+  let urlCacheHits = 0;
+  let urlCacheMiss = 0;
 
-    return {
-      mensagem: Object.keys(boletosFinal).length
-        ? `📄 Olá, *${nomeCliente}*! Encontramos boletos por empreendimento.`
-        : `📄 Olá, *${nomeCliente}*! Não há boletos disponíveis.`,
-      cliente: nomeCliente,
-      companyIds: Array.from(companyIds),
-      boletos: boletosFinal,
-      // pdf: pdfUnificado,
+  const resultados = await withLimit(16, tasksSelecionadas.map((t) => async () => {
+    const ckey = `url:${t.bill}:${t.inst}`;
+    const cached = cacheGet<string | null>(ckey);
+    if (cached !== undefined) {
+      urlCacheHits++;
+      return { ...t, url: cached };
+    }
+    urlCacheMiss++;
+
+    // orçamento curto por parcela
+    const controller = new AbortController();
+    const perItemBudget = 4000; // 4s
+    const timer = setTimeout(() => controller.abort(), perItemBudget);
+
+    try {
+      const info: any = await axiosSienge.get('/payment-slip-notification', {
+        params: { billReceivableId: Number(t.bill), installmentId: Number(t.inst) },
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+
+      const url = (info?.status >= 200 && info?.status < 300)
+        ? (info?.data?.results?.find((r: any) => r?.urlReport)?.urlReport ?? null)
+        : null;
+
+      cacheSet(ckey, url, 1000 * 60 * 60 * 6);
+      return { ...t, url };
+    } catch {
+      clearTimeout(timer);
+      cacheSet(ckey, null, 1000 * 60 * 10);
+      return { ...t, url: null };
+    }
+  }));
+
+  // aplicar URLs no agrupado
+  for (const { companyId, tipo, inst, bill, url } of resultados) {
+    const nomeEmp = billCompanyMap.get(bill)?.nome || 'não identificado';
+    const chave = `${companyId} - ${nomeEmp}`;
+    const arr = tipo === 'vencido' ? agrupado[chave].vencidos : agrupado[chave].emAberto;
+    const obj = arr.find((o: any) => o.parcela === inst && o.bill === bill);
+    if (obj) obj.link = url;
+  }
+
+  // 6) Montar objeto final (apenas o subset podado, até MAX_ITEMS no total)
+  const boletosFinal: Record<string, any> = {};
+  for (const [chave, dados] of Object.entries(agrupado)) {
+    boletosFinal[chave] = {
+      total: dados.vencidos.length + dados.emAberto.length,
+      vencidos: dados.vencidos,
+      emAberto: dados.emAberto,
     };
   }
+
+  // ⚠️ não geramos PDF aqui (rota rápida); PDF fica nos endpoints específicos
+  return {
+    mensagem: Object.keys(boletosFinal).length
+      ? `📄 Olá, *${nomeCliente}*! Encontramos boletos por empreendimento.`
+      : `📄 Olá, *${nomeCliente}*! Não há boletos disponíveis.`,
+    cliente: nomeCliente,
+    companyIds: Array.from(companyIds),
+    boletos: boletosFinal,
+    // pdf: (não retornado aqui)
+  };
+}
+
+
 
   // ------------- PDF Unificado (concat simples) -------------
   async gerarPdfUnificado(
@@ -823,20 +998,107 @@ export class BoletosService {
     if (!temPagina) return null;
     const mergedBytes = await pdfDoc.save();
     return Buffer.from(mergedBytes);
-  }  
+  }
 
   // PDF de Todos os empreendimentos do CPF (igual “todos-empreendimentos/pdf”)
+  // async gerarPdfTodosEmpreendimentos(
+  //   cpf: string,
+  //   nomeArquivo?: string,
+  // ): Promise<{ buffer: Buffer; filename: string }> {
+  //   const doc = cpf;
+  //   const start = Date.now();
+  //   const cliente = (await BuscarClienteSiengeService(doc)) as
+  //     | CustomerResponse
+  //     | { error: string };
+  //   const customerName: string | undefined = (cliente as CustomerResponse)
+  //     ?.results?.[0]?.name;
+
+  //   const reqLog = await this.logRequestStart({
+  //     cpf: doc,
+  //     customerName,
+  //     requestType: 'ALL_ENTERPRISES',
+  //     endpoint: '/boletos/todos-empreendimentos/pdf',
+  //   });
+
+  //   const debitos = (await BuscarDebitoClienteService(doc)) as
+  //     | CurrentDebitBalance
+  //     | { error: string };
+  //   if ((debitos as any)?.error) {
+  //     await this.logRequestFinish(reqLog.id, {
+  //       statusCode: 400,
+  //       success: false,
+  //       responseTimeMs: Date.now() - start,
+  //       errorMessage: (debitos as any).error,
+  //     });
+  //     throw new Error((debitos as any).error);
+  //   }
+
+  //   // coletar todas as URLs (vencidos + gerados)
+  //   const urls: string[] = [];
+  //   const logs: any[] = [];
+
+  //   for (const d of ((debitos as CurrentDebitBalance).results ?? []) as any[]) {
+  //     const bill = d.billReceivableId;
+  //     const instalments: any[] = [
+  //       ...(d.dueInstallments ?? []),
+  //       ...((d.payableInstallments ?? []).filter(
+  //         (p: any) => p.generatedBoleto,
+  //       ) ?? []),
+  //     ];
+
+  //     for (const inst of instalments) {
+  //       const r = (await BuscarBoletoClienteService(
+  //         bill,
+  //         inst.installmentId,
+  //       )) as PaymentSlip | { error: string };
+  //       const url = (r as any)?.error
+  //         ? null
+  //         : ((r as PaymentSlip)?.results?.[0]?.urlReport ?? null);
+
+  //       urls.push(...(url ? [url] : []));
+  //       logs.push({
+  //         billReceivableId: bill,
+  //         installmentId: inst.installmentId,
+  //         parcelaNumber: inst.installmentId,
+  //         urlReport: url,
+  //       });
+  //     }
+  //   }
+
+  //   await this.logInstallments(reqLog.id, logs);
+
+  //   const merged = await this.gerarPdfUnificadoPorLinks(urls, cpf);
+  //   await this.logRequestFinish(reqLog.id, {
+  //     statusCode: merged ? 200 : 404,
+  //     success: !!merged,
+  //     responseTimeMs: Date.now() - start,
+  //     errorMessage: merged ? undefined : 'nenhum PDF válido',
+  //   });
+
+  //   if (!merged) {
+  //     throw new Error('Não foi possível gerar o PDF unificado.');
+  //   }
+
+  //   const base = (nomeArquivo ?? 'boletos-todos-empreendimentos').replace(/\.pdf$/i, '');
+  //   return {
+  //     buffer: merged,
+  //     filename: `${base}.pdf`
+  //   };
+  // }
+
   async gerarPdfTodosEmpreendimentos(
     cpf: string,
     nomeArquivo?: string,
   ): Promise<{ buffer: Buffer; filename: string }> {
+    // ===== políticas =====
+    const DEADLINE_MS = Number(process.env.PDF_DEADLINE_MS ?? 45_000);     // 45s
+    const PRUNE_THRESHOLD = Number(process.env.PDF_PRUNE_THRESHOLD ?? 3);  // >3 => poda
+    const MAX_ITEMS = Number(process.env.PDF_MAX_ITEMS ?? 5);              // até 5 no PDF básico
+    const started = Date.now();
+
     const doc = cpf;
-    const start = Date.now();
-    const cliente = (await BuscarClienteSiengeService(doc)) as
-      | CustomerResponse
-      | { error: string };
-    const customerName: string | undefined = (cliente as CustomerResponse)
-      ?.results?.[0]?.name;
+    const cliente = (await BuscarClienteSiengeService(doc)) as CustomerResponse | { error: string };
+    const customerName: string | undefined = (cliente as any)?.results?.[0]?.name;
 
     const reqLog = await this.logRequestStart({
       cpf: doc,
@@ -845,58 +1107,110 @@ export class BoletosService {
       endpoint: '/boletos/todos-empreendimentos/pdf',
     });
 
-    const debitos = (await BuscarDebitoClienteService(doc)) as
-      | CurrentDebitBalance
-      | { error: string };
+    const debitos = (await BuscarDebitoClienteService(doc)) as CurrentDebitBalance | { error: string };
     if ((debitos as any)?.error) {
       await this.logRequestFinish(reqLog.id, {
         statusCode: 400,
         success: false,
-        responseTimeMs: Date.now() - start,
+        responseTimeMs: Date.now() - started,
         errorMessage: (debitos as any).error,
       });
       throw new Error((debitos as any).error);
     }
 
-    // coletar todas as URLs (vencidos + gerados)
-    const urls: string[] = [];
-    const logs: any[] = [];
+    // 1) Separar parcelas vencidas vs em aberto (com boleto gerado)
+    type Par = { bill: number; inst: number };
+    const vencidas: Par[] = [];
+    const abertas: Par[] = [];
 
     for (const d of ((debitos as CurrentDebitBalance).results ?? []) as any[]) {
-      const bill = d.billReceivableId;
-      const instalments: any[] = [
-        ...(d.dueInstallments ?? []),
-        ...((d.payableInstallments ?? []).filter(
-          (p: any) => p.generatedBoleto,
-        ) ?? []),
-      ];
-
-      for (const inst of instalments) {
-        const r = (await BuscarBoletoClienteService(
-          bill,
-          inst.installmentId,
-        )) as PaymentSlip | { error: string };
-        const url = (r as any)?.error
-          ? null
-          : ((r as PaymentSlip)?.results?.[0]?.urlReport ?? null);
-
-        urls.push(...(url ? [url] : []));
-        logs.push({
-          billReceivableId: bill,
-          installmentId: inst.installmentId,
-          parcelaNumber: inst.installmentId,
-          urlReport: url,
-        });
+      const bill = Number(d.billReceivableId);
+      for (const inst of (d.dueInstallments ?? [])) {
+        vencidas.push({ bill, inst: Number(inst.installmentId) });
+      }
+      for (const inst of (d.payableInstallments ?? [])) {
+        if (inst.generatedBoleto) abertas.push({ bill, inst: Number(inst.installmentId) });
       }
     }
 
+    const totalParcelas = vencidas.length + abertas.length;
+
+    // 2) Decidir o subset alvo
+    //    - grande (>3) OU já estourou tempo? => pega só 5 (prioriza vencidas)
+    const estourouTempo = (Date.now() - started) > DEADLINE_MS;
+    let alvo: Par[];
+
+    if (totalParcelas > PRUNE_THRESHOLD || estourouTempo) {
+      if (vencidas.length > 0) {
+        alvo = vencidas.slice(0, MAX_ITEMS);
+      } else {
+        alvo = abertas.slice(0, MAX_ITEMS);
+      }
+    } else {
+      // pequeno: pode incluir tudo
+      alvo = vencidas.concat(abertas);
+    }
+
+    // 3) Buscar URLs APENAS do subset (rápido: paralelismo + timeout curto por parcela)
+    const urls: string[] = [];
+    const logs: any[] = [];
+
+    await withLimit(8, alvo.map((p) => async () => {
+      // orçamento por parcela (falhar rápido)
+      const controller = new AbortController();
+      const perItemBudget = 4000; // 4s
+      const timer = setTimeout(() => controller.abort(), perItemBudget);
+
+      try {
+        const r = (await axiosSienge.get('/payment-slip-notification', {
+          params: { billReceivableId: p.bill, installmentId: p.inst },
+          signal: controller.signal
+        })) as any;
+
+        clearTimeout(timer);
+
+        const url = (r?.status >= 200 && r?.status < 300)
+          ? (r?.data?.results?.[0]?.urlReport ?? null)
+          : null;
+
+        if (url) urls.push(url);
+        logs.push({
+          billReceivableId: p.bill,
+          installmentId: p.inst,
+          parcelaNumber: p.inst,
+          urlReport: url ?? null,
+        });
+      } catch {
+        clearTimeout(timer);
+        logs.push({
+          billReceivableId: p.bill,
+          installmentId: p.inst,
+          parcelaNumber: p.inst,
+          urlReport: null,
+        });
+      }
+    }));
+
     await this.logInstallments(reqLog.id, logs);
 
+    // 4) Se ainda não obteve nenhuma URL dentro do prazo, erro controlado
+    if ((Date.now() - started) > DEADLINE_MS && urls.length === 0) {
+      await this.logRequestFinish(reqLog.id, {
+        statusCode: 408,
+        success: false,
+        responseTimeMs: Date.now() - started,
+        errorMessage: 'deadline atingido antes de obter PDFs suficientes',
+      });
+      throw new Error('Tempo limite atingido ao montar o PDF.');
+    }
+
+    // 5) Gerar PDF unificado com as URLs coletadas (paralelo + merge)
     const merged = await this.gerarPdfUnificadoPorLinks(urls, cpf);
+
     await this.logRequestFinish(reqLog.id, {
       statusCode: merged ? 200 : 404,
       success: !!merged,
-      responseTimeMs: Date.now() - start,
+      responseTimeMs: Date.now() - started,
       errorMessage: merged ? undefined : 'nenhum PDF válido',
     });
 
@@ -904,12 +1218,14 @@ export class BoletosService {
       throw new Error('Não foi possível gerar o PDF unificado.');
     }
 
-    const base = (nomeArquivo ?? 'boletos-todos-empreendimentos').replace(/\.pdf$/i, '');
-    return {
-      buffer: merged,
-      filename: `${base}.pdf`
-    };
+    // se foi podado, só o nome muda (opcional)
+    const foiPodado = (totalParcelas > PRUNE_THRESHOLD) || estourouTempo;
+    const base = (nomeArquivo ?? `boletos-todos-empreendimentos${foiPodado ? '-parcial' : ''}`)
+      .replace(/\.pdf$/i, '');
+
+    return { buffer: merged, filename: `${base}.pdf` };
   }
+
 
   // PDF Somente do empreendimento escolhido (segunda via)
   async gerarPdfSegundaViaDoEmpreendimento(
@@ -1136,7 +1452,7 @@ export class BoletosService {
     if (!temPagina) return null;
     const mergedBytes = await pdfDoc.save();
     return `data:application/pdf;base64,${Buffer.from(mergedBytes).toString('base64')}`;
-  }  
+  }
 
   async gerarPdfBufferUnificado(cpf: string): Promise<Buffer | null> {
     // 1) extrai Todos os boletos
@@ -1223,7 +1539,7 @@ export class BoletosService {
       } catch {
         // ignore
       }
-    }    
+    }
 
     if (!temPagina) return null;
     const mergedBytes = await pdfDoc.save();
