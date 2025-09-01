@@ -1,23 +1,12 @@
-// import axios from "axios";
 import type { CustomerResponse } from "../models/CustomerResponse";
 import { normalizeDoc } from "src/shared/doc.util";
 import { axiosSienge } from "src/shared/http";
-
-// const SIENGE_BASE_URL = process.env.SIENGE_BASE_URL!;
-// const SIENGE_USER = process.env.SIENGE_USER!;
-// const SIENGE_PASS = process.env.SIENGE_PASS!;
 
 export default async function BuscarClienteSiengeService(
   doc: string
 ): Promise<CustomerResponse | { error: string }> {
   try {
     const { key, value } = normalizeDoc(doc);
-    // const url = `${SIENGE_BASE_URL}/customers`;
-    // const resp = await axios.get<CustomerResponse>(url, {
-    //   params: { [key]: value },
-    //   auth: { username: SIENGE_USER, password: SIENGE_PASS },
-    //   validateStatus: () => true
-    // });
 
     const resp = await axiosSienge.get<CustomerResponse>(
       '/customers',
